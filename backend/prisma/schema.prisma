@@ -1,0 +1,89 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Looking for ways to speed up your queries, or scale easily with your serverless or edge functions?
+// Try Prisma Accelerate: https://pris.ly/cli/accelerate-init
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// Event Type
+enum EventType {
+  DEPOSIT
+  WITHDRAW
+}
+
+// Blockchain Event
+model Event {
+  id              Int       @id @default(autoincrement())
+  // ---- Blockchain identity ----
+  chainId         Int       @map("chain_id")
+  contractAddress String    @map("contract_address") @db.VarChar(42)
+  txHash          String    @map("tx_hash") @db.VarChar(66) // transaction hash (0x + 64 hex)
+  logIndex        Int       @map("log_index") // event index within the transaction
+  blockNumber     BigInt    @map("block_number") // block where event occurred
+  blockHash       String?   @map("block_hash") @db.VarChar(66) // optional block hash for deeper reorg checks
+  // ---- Event Data ----
+  userAddress     String    @map("user_address") @db.VarChar(42) // the `owner` from Deposit/Withdraw (0x + 40 hex)
+  // uint256 safe storage
+  amount          Decimal   @map("amount") @db.Decimal(78, 0)
+  shares          Decimal   @map("shares") @db.Decimal(78, 0)
+  eventType       EventType @map("event_type")
+  // ---- Reorg Safety ----
+  confirmed       Boolean   @default(false)
+  removed         Boolean   @default(false)
+  createdAt       DateTime  @default(now()) @map("created_at")
+
+  // ---- Constraints ----
+  @@unique([txHash, logIndex]) // idempotency
+  @@index([userAddress]) // fast user queries
+  @@index([blockNumber]) // range scans
+  @@index([confirmed]) // confirmation queries
+  @@map("events")
+}
+
+model SyncState {
+  id Int @id @default(1)
+
+  // last scanned block (even if not confirmed)
+  lastProcessedBlock BigInt @map("last_processed_block")
+
+  // last block that has ≥ 3 confirmations
+  lastSafeBlock BigInt @map("last_safe_block")
+
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("sync_state")
+}
+
+model VaultStats {
+  id Int @id @default(1)
+
+  totalDeposits    Decimal @default(0) @map("total_deposits") @db.Decimal(78, 0)
+  totalWithdrawals Decimal @default(0) @map("total_withdrawals") @db.Decimal(78, 0)
+  totalShares      Decimal @default(0) @map("total_shares") @db.Decimal(78, 0)
+
+  userCount Int @default(0) @map("user_count")
+
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  @@map("vault_stats")
+}
+
+model UserPosition {
+  userAddress String @id @map("user_address") @db.VarChar(42)
+
+  totalDeposits    Decimal @default(0) @map("total_deposits") @db.Decimal(78, 0)
+  totalWithdrawals Decimal @default(0) @map("total_withdrawals") @db.Decimal(78, 0)
+  totalShares      Decimal @default(0) @map("total_shares") @db.Decimal(78, 0)
+
+  lastUpdated DateTime @updatedAt @map("last_updated")
+
+  @@map("user_positions")
+}
